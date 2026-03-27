@@ -1,0 +1,27 @@
+kind = "mobile"
+previewPath = "/"
+title = "Secret Calculator Vault"
+version = "1.0.0"
+id = "artifacts/secret-calculator-vault"
+router = "expo-domain"
+
+[[integratedSkills]]
+name = "expo"
+version = "1.0.0"
+
+[[services]]
+ensurePreviewReachable = "/status"
+name = "expo"
+paths = [ "/" ]
+localPort = 19870
+
+[services.development]
+run = "pnpm --filter @workspace/secret-calculator-vault run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/secret-calculator-vault", "run", "build" ]
+run = [ "pnpm", "--filter", "@workspace/secret-calculator-vault", "run", "serve" ]
+
+[services.env]
+PORT = "19870"
+BASE_PATH = "/"

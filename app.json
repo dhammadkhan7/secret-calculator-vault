@@ -1,0 +1,91 @@
+{
+  "expo": {
+    "name": "Calculator",
+    "slug": "secret-calculator-vault",
+    "version": "1.0.0",
+    "owner": "mohsinabid7783",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "secret-calculator-vault",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1C1C1E"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app uses the camera to add files to your secure vault.",
+        "NSPhotoLibraryUsageDescription": "This app accesses your photo library to add files to your secure vault.",
+        "NSPhotoLibraryAddUsageDescription": "This app saves files to your photo library.",
+        "NSFaceIDUsageDescription": "Use Face ID to securely access your vault."
+      }
+    },
+    "android": {
+      "package": "com.secretcalculatorvault.app",
+      "versionCode": 3,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.READ_MEDIA_VIDEO",
+        "android.permission.WRITE_MEDIA_IMAGES",
+        "android.permission.WRITE_MEDIA_VIDEO",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.ACCESS_MEDIA_LOCATION",
+        "android.permission.READ_MEDIA_AUDIO"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/images/icon.png"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "origin": "https://replit.com/"
+        }
+      ],
+      "expo-font",
+      "expo-web-browser",
+      "expo-local-authentication",
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-9346750069338421~9417436650",
+          "iosAppId": "ca-app-pub-9346750069338421~9417436650"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to add them to your secure vault.",
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use the camera to add photos to your secure vault."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos.",
+          "savePhotosPermission": "Allow $(PRODUCT_NAME) to save photos.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "0f6c9f32-43e6-476e-8268-f7a81e194690"
+      }
+    }
+  }
+}
