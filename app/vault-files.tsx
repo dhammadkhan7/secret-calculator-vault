@@ -37,6 +37,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import * as MediaLibrary from "expo-media-library";
+
 import { FileViewer } from "@/components/FileViewer";
 import { toast } from "@/components/Toast";
 import { VaultFileCard } from "@/components/VaultFileCard";
@@ -181,7 +183,21 @@ export default function VaultFilesScreen() {
 
   // ─── IMPORT HANDLERS ─────────────────────────────────────────
 
-  /** Import photos/videos from gallery */
+  /** Delete an array of assetIds from the system gallery (native only) */
+  async function deleteFromGallery(assetIds: string[]): Promise<void> {
+    if (Platform.OS === "web" || assetIds.length === 0) return;
+    try {
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== "granted") return; // graceful — vault copy already succeeded
+      await MediaLibrary.deleteAssetsAsync(assetIds);
+    } catch (e) {
+      // deleteAssetsAsync can throw on Android 10+ if the system dialog is rejected;
+      // the vault copy is already done so we just swallow this silently.
+      console.warn("[VaultFiles] deleteFromGallery failed (ignored):", e);
+    }
+  }
+
+  /** Import photos/videos from gallery, then delete originals from gallery */
   async function handlePickFromGallery() {
     setShowAddSheet(false);
     await new Promise((r) => setTimeout(r, 300));
@@ -208,6 +224,7 @@ export default function VaultFilesScreen() {
         let imported = 0;
         let skippedLarge = 0;
         let failed = 0;
+        const importedAssetIds: string[] = [];
 
         for (const asset of result.assets) {
           const ext = asset.type === "video" ? "mp4" : "jpg";
@@ -216,6 +233,8 @@ export default function VaultFilesScreen() {
           try {
             await addFileToVault(asset.uri, name, fileType);
             imported++;
+            // Collect assetId for gallery deletion (available on iOS & Android 29+)
+            if (asset.assetId) importedAssetIds.push(asset.assetId);
           } catch (e: any) {
             if (e?.message === "FILE_TOO_LARGE_FOR_WEB") {
               skippedLarge++;
@@ -229,18 +248,23 @@ export default function VaultFilesScreen() {
         if (imported > 0) {
           haptic("success");
           await loadFiles();
+
+          // Auto-delete successfully imported files from gallery
+          if (Platform.OS !== "web" && importedAssetIds.length > 0) {
+            await deleteFromGallery(importedAssetIds);
+          }
         }
 
         if (skippedLarge > 0 && imported === 0 && failed === 0) {
           toast.error("File Too Large", "Videos cannot be stored in browser. Use Expo Go for full support.");
         } else if (skippedLarge > 0 && imported > 0) {
-          toast.info("Partially Imported", `${imported} imported, ${skippedLarge} video${skippedLarge > 1 ? "s" : ""} skipped — use Expo Go.`);
+          toast.info("Partially Imported", `${imported} hidden from gallery, ${skippedLarge} video${skippedLarge > 1 ? "s" : ""} skipped.`);
         } else if (failed > 0 && imported === 0) {
           toast.error("Import Failed", "Could not import the selected files.");
         } else if (failed > 0) {
-          toast.info("Partially Imported", `${imported} imported, ${failed} failed.`);
+          toast.info("Partially Imported", `${imported} hidden, ${failed} failed.`);
         } else if (imported > 0) {
-          toast.success("Imported!", `${imported} file${imported > 1 ? "s" : ""} added to your vault.`);
+          toast.success("Hidden from Gallery!", `${imported} file${imported > 1 ? "s" : ""} moved to your vault.`);
         }
       }
     } catch (e) {
