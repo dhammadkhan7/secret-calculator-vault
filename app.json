@@ -12,10 +12,11 @@
     "splash": {
       "image": "./assets/images/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#1C1C1E"
+      "backgroundColor": "#0B0F1A"
     },
     "ios": {
       "supportsTablet": false,
+      "icon": "./assets/images/icon.png",
       "infoPlist": {
         "NSCameraUsageDescription": "This app uses the camera to add files to your secure vault.",
         "NSPhotoLibraryUsageDescription": "This app accesses your photo library to add files to your secure vault.",
@@ -25,7 +26,13 @@
     },
     "android": {
       "package": "com.secretcalculatorvault.app",
-      "versionCode": 3,
+      "versionCode": 4,
+      "icon": "./assets/images/icon.png",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "monochromeImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#0B0F1A"
+      },
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
