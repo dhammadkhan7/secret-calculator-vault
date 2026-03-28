@@ -122,7 +122,7 @@ const styles = StyleSheet.create({
   },
   bg: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#1C1C1E",
+    backgroundColor: "#0B0F1A",
     alignItems: "center",
     justifyContent: "center",
   },
