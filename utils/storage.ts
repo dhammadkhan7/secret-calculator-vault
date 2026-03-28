@@ -341,6 +341,49 @@ export async function deleteFileFromVault(fileId: string): Promise<void> {
   await saveVaultFileMeta(updated);
 }
 
+// ─── Calculator history ────────────────────────────────────────────────────────
+
+const CALC_HISTORY_KEY = "calc_history";
+const CALC_HISTORY_MAX = 100;
+
+export interface CalcHistoryRecord {
+  expression: string;
+  result: string;
+  timestamp: number;
+}
+
+export async function getCalcHistory(): Promise<CalcHistoryRecord[]> {
+  try {
+    const raw = await AsyncStorage.getItem(CALC_HISTORY_KEY);
+    return raw ? (JSON.parse(raw) as CalcHistoryRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function addCalcHistoryRecord(
+  record: Omit<CalcHistoryRecord, "timestamp">
+): Promise<void> {
+  try {
+    const history = await getCalcHistory();
+    const newRecord: CalcHistoryRecord = { ...record, timestamp: Date.now() };
+    const updated = [newRecord, ...history].slice(0, CALC_HISTORY_MAX);
+    await AsyncStorage.setItem(CALC_HISTORY_KEY, JSON.stringify(updated));
+  } catch {}
+}
+
+export async function deleteCalcHistoryRecord(timestamp: number): Promise<void> {
+  try {
+    const history = await getCalcHistory();
+    const updated = history.filter((r) => r.timestamp !== timestamp);
+    await AsyncStorage.setItem(CALC_HISTORY_KEY, JSON.stringify(updated));
+  } catch {}
+}
+
+export async function clearCalcHistory(): Promise<void> {
+  await AsyncStorage.removeItem(CALC_HISTORY_KEY);
+}
+
 // ─── Format helpers ───────────────────────────────────────────────────────────
 
 export function formatFileSize(bytes: number): string {
