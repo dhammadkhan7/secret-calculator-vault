@@ -7,15 +7,21 @@
  * ⌫ is fixed in the bottom row.
  */
 
+import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Alert,
   Dimensions,
+  FlatList,
+  Modal,
   Platform,
+  Pressable,
   StatusBar,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -38,7 +44,14 @@ import {
   toggleSign,
   type CalculatorState,
 } from "@/utils/calculator";
-import { getSecretCode } from "@/utils/storage";
+import {
+  CalcHistoryRecord,
+  addCalcHistoryRecord,
+  clearCalcHistory,
+  deleteCalcHistoryRecord,
+  getCalcHistory,
+  getSecretCode,
+} from "@/utils/storage";
 
 const { width: RAW_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SCREEN_WIDTH = Math.min(RAW_WIDTH, 430);
@@ -52,6 +65,285 @@ const BTN = Math.floor((SCREEN_WIDTH - H_PADDING * 2 - GAP * 3) / 4);
 const AD_HEIGHT = 50;
 const AD_MARGIN = 8;
 
+// ─── Relative time helper ──────────────────────────────────────────────────────
+
+function relativeTime(timestamp: number): string {
+  const diff = Date.now() - timestamp;
+  const sec = Math.floor(diff / 1000);
+  if (sec < 60) return "just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const days = Math.floor(hr / 24);
+  if (days === 1) return "yesterday";
+  if (days < 7) return `${days}d ago`;
+  return new Date(timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// ─── Group history by day ─────────────────────────────────────────────────────
+
+type HistoryGroup = { label: string; items: CalcHistoryRecord[] };
+
+function groupHistory(records: CalcHistoryRecord[]): HistoryGroup[] {
+  const groups: HistoryGroup[] = [];
+  let currentLabel = "";
+  let current: CalcHistoryRecord[] = [];
+
+  for (const rec of records) {
+    const d = new Date(rec.timestamp);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+
+    let label: string;
+    if (d.toDateString() === today.toDateString()) label = "Today";
+    else if (d.toDateString() === yesterday.toDateString()) label = "Yesterday";
+    else label = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+    if (label !== currentLabel) {
+      if (current.length > 0) groups.push({ label: currentLabel, items: current });
+      currentLabel = label;
+      current = [];
+    }
+    current.push(rec);
+  }
+  if (current.length > 0) groups.push({ label: currentLabel, items: current });
+  return groups;
+}
+
+// ─── History Panel ─────────────────────────────────────────────────────────────
+
+interface HistoryPanelProps {
+  visible: boolean;
+  records: CalcHistoryRecord[];
+  onClose: () => void;
+  onRestore: (result: string, expression: string) => void;
+  onDelete: (timestamp: number) => void;
+  onClear: () => void;
+}
+
+function HistoryPanel({ visible, records, onClose, onRestore, onDelete, onClear }: HistoryPanelProps) {
+  const insets = useSafeAreaInsets();
+  const groups = groupHistory(records);
+
+  function confirmClear() {
+    Alert.alert("Clear History", "Remove all calculation history?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Clear", style: "destructive", onPress: onClear },
+    ]);
+  }
+
+  type RowItem =
+    | { type: "header"; label: string; key: string }
+    | { type: "record"; rec: CalcHistoryRecord; key: string };
+
+  const flatItems: RowItem[] = [];
+  for (const g of groups) {
+    flatItems.push({ type: "header", label: g.label, key: `h_${g.label}` });
+    for (const rec of g.items) {
+      flatItems.push({ type: "record", rec, key: `r_${rec.timestamp}` });
+    }
+  }
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      transparent
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <View style={hp.overlay}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <View style={[hp.sheet, { paddingBottom: insets.bottom + 16 }]}>
+          {/* Handle */}
+          <View style={hp.handle} />
+
+          {/* Header */}
+          <View style={hp.header}>
+            <Text style={hp.title}>History</Text>
+            <View style={hp.headerActions}>
+              {records.length > 0 && (
+                <TouchableOpacity onPress={confirmClear} style={hp.clearBtn} activeOpacity={0.7}>
+                  <Feather name="trash-2" size={16} color="rgba(255,255,255,0.4)" />
+                  <Text style={hp.clearText}>Clear</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={onClose} style={hp.closeBtn} activeOpacity={0.7}>
+                <Feather name="x" size={20} color="rgba(255,255,255,0.6)" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* List */}
+          {records.length === 0 ? (
+            <View style={hp.empty}>
+              <Feather name="clock" size={36} color="rgba(255,255,255,0.12)" />
+              <Text style={hp.emptyText}>No calculations yet</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={flatItems}
+              keyExtractor={(item) => item.key}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12 }}
+              renderItem={({ item }) => {
+                if (item.type === "header") {
+                  return <Text style={hp.dayLabel}>{item.label}</Text>;
+                }
+                const { rec } = item;
+                return (
+                  <TouchableOpacity
+                    style={hp.row}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      onRestore(rec.result, rec.expression);
+                      onClose();
+                    }}
+                    onLongPress={() => {
+                      Alert.alert("Delete", "Remove this item from history?", [
+                        { text: "Cancel", style: "cancel" },
+                        { text: "Delete", style: "destructive", onPress: () => onDelete(rec.timestamp) },
+                      ]);
+                    }}
+                  >
+                    <View style={hp.rowLeft}>
+                      <Text style={hp.expr} numberOfLines={1}>{rec.expression}</Text>
+                      <Text style={hp.result}>= {rec.result}</Text>
+                    </View>
+                    <View style={hp.rowRight}>
+                      <Text style={hp.time}>{relativeTime(rec.timestamp)}</Text>
+                      <Feather name="corner-down-left" size={13} color="rgba(255,165,0,0.5)" />
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const hp = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  sheet: {
+    backgroundColor: "#1C1C1E",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "80%",
+    minHeight: 260,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    alignSelf: "center",
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  title: {
+    fontSize: 17,
+    fontFamily: "Inter_600SemiBold",
+    color: "#fff",
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  clearBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  clearText: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.4)",
+    fontFamily: "Inter_400Regular",
+  },
+  closeBtn: {
+    padding: 4,
+  },
+  empty: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 48,
+  },
+  emptyText: {
+    color: "rgba(255,255,255,0.25)",
+    fontSize: 15,
+    fontFamily: "Inter_400Regular",
+  },
+  dayLabel: {
+    fontSize: 11,
+    fontFamily: "Inter_600SemiBold",
+    color: "rgba(255,255,255,0.3)",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginTop: 16,
+    marginBottom: 6,
+  },
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 6,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.07)",
+  },
+  rowLeft: { flex: 1, gap: 2 },
+  expr: {
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    color: "rgba(255,255,255,0.4)",
+  },
+  result: {
+    fontSize: 22,
+    fontFamily: "Inter_600SemiBold",
+    color: "#fff",
+    letterSpacing: -0.5,
+  },
+  rowRight: {
+    alignItems: "flex-end",
+    gap: 6,
+    marginLeft: 12,
+  },
+  time: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    color: "rgba(255,255,255,0.25)",
+  },
+});
+
+// ─── Main calculator screen ───────────────────────────────────────────────────
+
 export default function CalculatorScreen() {
   const insets = useSafeAreaInsets();
   const { firstTimeDone, completeTutorial, isLoading } = useApp();
@@ -60,15 +352,37 @@ export default function CalculatorScreen() {
   const [showSplash, setShowSplash] = useState(true);
   const [showTutorial, setShowTutorial] = useState(false);
   const [activeOp, setActiveOp] = useState<string | null>(null);
-  const secretBufferRef = useRef("");
-  // Secret code loaded from storage (default "1337", updated when user changes it)
-  const secretCodeRef = useRef("1337");
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyRecords, setHistoryRecords] = useState<CalcHistoryRecord[]>([]);
 
+  const secretBufferRef = useRef("");
+  const secretCodeRef = useRef("1337");
+  // Track last saved history expression to avoid duplicates on re-render
+  const lastSavedExprRef = useRef<string | null>(null);
+
+  // Load secret code and persistent history on mount
   useEffect(() => {
-    getSecretCode().then((code) => {
-      secretCodeRef.current = code;
-    });
+    getSecretCode().then((code) => { secretCodeRef.current = code; });
+    getCalcHistory().then(setHistoryRecords);
   }, []);
+
+  // Sync new in-memory calculation to AsyncStorage whenever state.history changes
+  useEffect(() => {
+    const latest = state.history[0];
+    if (!latest) return;
+    // Avoid duplicate saves (same expression)
+    if (lastSavedExprRef.current === latest.expression) return;
+    lastSavedExprRef.current = latest.expression;
+
+    const record: CalcHistoryRecord = {
+      expression: latest.expression,
+      result: latest.result,
+      timestamp: Date.now(),
+    };
+    addCalcHistoryRecord(record).then(() =>
+      getCalcHistory().then(setHistoryRecords)
+    );
+  }, [state.history]);
 
   function handleSplashComplete() {
     setShowSplash(false);
@@ -110,7 +424,6 @@ export default function CalculatorScreen() {
     secretBufferRef.current = "";
     setState((prev) => inputEquals(prev));
     setActiveOp(null);
-    // Reload secret code each time so we always use the latest saved value
     getSecretCode().then((code) => {
       secretCodeRef.current = code;
       if (bufferBeforeEquals.endsWith(code)) {
@@ -127,11 +440,6 @@ export default function CalculatorScreen() {
     setState((prev) => backspace(prev));
   }
 
-  /**
-   * AC / C logic:
-   *   AC — completely fresh (no operator, no previous, display is "0")
-   *   C  — clear current number only; keep the operator chain so user can retype
-   */
   function pressClear() {
     const isAC = !state.previousValue && !state.operator && state.display === "0";
     secretBufferRef.current = "";
@@ -151,9 +459,37 @@ export default function CalculatorScreen() {
     setState((prev) => inputPercent(prev));
   }
 
+  // ─── HISTORY HANDLERS ─────────────────────────────────────
+
+  const handleRestoreHistory = useCallback((result: string, expression: string) => {
+    // Put the result on the display as a fresh starting number
+    setState({
+      ...createInitialState(),
+      display: result,
+      expression: `(${expression})`,
+      waitingForOperand: true,
+      history: state.history,
+    });
+    setActiveOp(null);
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  }, [state.history]);
+
+  const handleDeleteHistoryItem = useCallback((timestamp: number) => {
+    deleteCalcHistoryRecord(timestamp).then(() =>
+      getCalcHistory().then(setHistoryRecords)
+    );
+  }, []);
+
+  const handleClearHistory = useCallback(() => {
+    clearCalcHistory().then(() => {
+      setHistoryRecords([]);
+      setState((prev) => ({ ...prev, history: [] }));
+      lastSavedExprRef.current = null;
+    });
+  }, []);
+
   // ─── DISPLAY ──────────────────────────────────────────────
 
-  // AC shows when calculator is completely blank, C otherwise
   const clearLabel =
     !state.previousValue && !state.operator && state.display === "0" ? "AC" : "C";
 
@@ -191,12 +527,40 @@ export default function CalculatorScreen() {
 
       {/* ── Display ── */}
       <View style={[styles.displayArea, { minHeight: Math.max(displayAreaHeight, 160) }]}>
-        {/* History */}
+
+        {/* History icon button */}
+        <TouchableOpacity
+          style={styles.historyIconBtn}
+          onPress={() => setShowHistory(true)}
+          activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Feather name="clock" size={18} color={
+            historyRecords.length > 0
+              ? "rgba(255,165,0,0.7)"
+              : "rgba(255,255,255,0.2)"
+          } />
+          {historyRecords.length > 0 && (
+            <View style={styles.historyBadge}>
+              <Text style={styles.historyBadgeText}>
+                {historyRecords.length > 99 ? "99+" : historyRecords.length}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+
+        {/* Recent history preview (last 2 items) */}
         <View style={styles.historyArea}>
-          {state.history.slice(0, 3).map((rec, i) => (
-            <Text key={i} style={styles.historyRow} numberOfLines={1}>
-              {rec.expression} = {rec.result}
-            </Text>
+          {state.history.slice(0, 2).map((rec, i) => (
+            <TouchableOpacity
+              key={i}
+              onPress={() => handleRestoreHistory(rec.result, rec.expression)}
+              activeOpacity={0.6}
+            >
+              <Text style={styles.historyRow} numberOfLines={1}>
+                {rec.expression} = {rec.result}
+              </Text>
+            </TouchableOpacity>
           ))}
         </View>
 
@@ -303,6 +667,16 @@ export default function CalculatorScreen() {
         </View>
       </View>
 
+      {/* ── History Panel ── */}
+      <HistoryPanel
+        visible={showHistory}
+        records={historyRecords}
+        onClose={() => setShowHistory(false)}
+        onRestore={handleRestoreHistory}
+        onDelete={handleDeleteHistoryItem}
+        onClear={handleClearHistory}
+      />
+
       {showSplash && <SplashAnimation onComplete={handleSplashComplete} />}
       {showTutorial && !showSplash && (
         <TutorialOverlay onSkip={handleTutorialDone} onComplete={handleTutorialDone} />
@@ -325,10 +699,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: H_PADDING + 4,
     paddingBottom: 6,
   },
+  historyIconBtn: {
+    position: "absolute",
+    top: 12,
+    left: H_PADDING + 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    zIndex: 10,
+  },
+  historyBadge: {
+    backgroundColor: "rgba(255,165,0,0.85)",
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  historyBadgeText: {
+    fontSize: 9,
+    fontFamily: "Inter_600SemiBold",
+    color: "#000",
+  },
   historyArea: {
     alignItems: "flex-end",
     marginBottom: 4,
-    minHeight: 48,
+    minHeight: 44,
     justifyContent: "flex-end",
   },
   historyRow: {
