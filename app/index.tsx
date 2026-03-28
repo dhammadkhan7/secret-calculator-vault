@@ -12,7 +12,6 @@ import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert,
   Dimensions,
   FlatList,
   Modal,
@@ -126,12 +125,19 @@ interface HistoryPanelProps {
 function HistoryPanel({ visible, records, onClose, onRestore, onDelete, onClear }: HistoryPanelProps) {
   const insets = useSafeAreaInsets();
   const groups = groupHistory(records);
+  const [confirmingClear, setConfirmingClear] = useState(false);
 
-  function confirmClear() {
-    Alert.alert("Clear History", "Remove all calculation history?", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Clear", style: "destructive", onPress: onClear },
-    ]);
+  function handleClearPress() {
+    setConfirmingClear(true);
+  }
+
+  function handleCancelClear() {
+    setConfirmingClear(false);
+  }
+
+  function handleConfirmClear() {
+    setConfirmingClear(false);
+    onClear();
   }
 
   type RowItem =
@@ -164,8 +170,8 @@ function HistoryPanel({ visible, records, onClose, onRestore, onDelete, onClear 
           <View style={hp.header}>
             <Text style={hp.title}>History</Text>
             <View style={hp.headerActions}>
-              {records.length > 0 && (
-                <TouchableOpacity onPress={confirmClear} style={hp.clearBtn} activeOpacity={0.7}>
+              {records.length > 0 && !confirmingClear && (
+                <TouchableOpacity onPress={handleClearPress} style={hp.clearBtn} activeOpacity={0.7}>
                   <Feather name="trash-2" size={16} color="rgba(255,255,255,0.4)" />
                   <Text style={hp.clearText}>Clear</Text>
                 </TouchableOpacity>
@@ -175,6 +181,22 @@ function HistoryPanel({ visible, records, onClose, onRestore, onDelete, onClear 
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Inline clear confirmation bar */}
+          {confirmingClear && (
+            <View style={hp.confirmBar}>
+              <Text style={hp.confirmText}>Delete all history?</Text>
+              <View style={hp.confirmBtns}>
+                <TouchableOpacity onPress={handleCancelClear} style={hp.confirmCancel} activeOpacity={0.7}>
+                  <Text style={hp.confirmCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleConfirmClear} style={hp.confirmDelete} activeOpacity={0.7}>
+                  <Feather name="trash-2" size={13} color="#fff" />
+                  <Text style={hp.confirmDeleteText}>Delete All</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
 
           {/* List */}
           {records.length === 0 ? (
@@ -202,10 +224,8 @@ function HistoryPanel({ visible, records, onClose, onRestore, onDelete, onClear 
                       onClose();
                     }}
                     onLongPress={() => {
-                      Alert.alert("Delete", "Remove this item from history?", [
-                        { text: "Cancel", style: "cancel" },
-                        { text: "Delete", style: "destructive", onPress: () => onDelete(rec.timestamp) },
-                      ]);
+                      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      onDelete(rec.timestamp);
                     }}
                   >
                     <View style={hp.rowLeft}>
@@ -284,6 +304,53 @@ const hp = StyleSheet.create({
   },
   closeBtn: {
     padding: 4,
+  },
+  confirmBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,59,48,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,59,48,0.25)",
+  },
+  confirmText: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.7)",
+    fontFamily: "Inter_400Regular",
+  },
+  confirmBtns: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  confirmCancel: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  confirmCancelText: {
+    fontSize: 13,
+    color: "rgba(255,255,255,0.6)",
+    fontFamily: "Inter_400Regular",
+  },
+  confirmDelete: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,59,48,0.8)",
+  },
+  confirmDeleteText: {
+    fontSize: 13,
+    color: "#fff",
+    fontFamily: "Inter_600SemiBold",
   },
   empty: {
     flex: 1,
