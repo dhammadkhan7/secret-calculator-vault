@@ -582,7 +582,7 @@ export default function CalculatorScreen() {
     return val;
   }
 
-  const bottomPad = Math.max(insets.bottom, 20);
+  const bottomPad = Math.max(insets.bottom, 20) + 28;
   const gridHeight = (BTN + GAP) * 5 - GAP;
   const adAreaHeight = AD_HEIGHT + AD_MARGIN * 2;
   const displayAreaHeight =
