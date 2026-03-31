@@ -797,11 +797,12 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   expression: {
-    fontSize: 18,
+    fontSize: 26,
     fontFamily: "Inter_400Regular",
-    color: "rgba(255,255,255,0.4)",
+    color: "rgba(255,255,255,0.68)",
     textAlign: "right",
-    marginBottom: 2,
+    marginBottom: 4,
+    letterSpacing: 0.5,
   },
   displayNumber: {
     fontFamily: "Inter_400Regular",
