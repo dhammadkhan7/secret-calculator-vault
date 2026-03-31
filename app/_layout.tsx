@@ -6,6 +6,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { usePreventScreenCapture } from "expo-screen-capture";
 import { useRouter, useSegments, Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef, useState } from "react";
@@ -74,6 +75,9 @@ function PrivacyGuard({ children }: { children: React.ReactNode }) {
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const segmentsRef = useRef(segments);
   const wasOnVaultRef = useRef(false);
+
+  // Sets FLAG_SECURE on Android — makes recents thumbnail blank and blocks screenshots
+  usePreventScreenCapture();
 
   useEffect(() => {
     segmentsRef.current = segments;
