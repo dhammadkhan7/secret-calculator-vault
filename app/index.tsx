@@ -508,14 +508,9 @@ export default function CalculatorScreen() {
   }
 
   function pressClear() {
-    const isAC = !state.previousValue && !state.operator && state.display === "0";
     secretBufferRef.current = "";
-    if (isAC) {
-      setActiveOp(null);
-      setState((prev) => clearAll(prev));
-    } else {
-      setState((prev) => clearDisplay(prev));
-    }
+    setActiveOp(null);
+    setState((prev) => clearAll(prev));
   }
 
   function pressSign() {
@@ -557,8 +552,7 @@ export default function CalculatorScreen() {
 
   // ─── DISPLAY ──────────────────────────────────────────────
 
-  const clearLabel =
-    !state.previousValue && !state.operator && state.display === "0" ? "AC" : "C";
+  const clearLabel = "AC";
 
   const rawDisplay = state.display;
   const displayLen = rawDisplay.length;
