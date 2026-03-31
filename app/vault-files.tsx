@@ -184,16 +184,52 @@ export default function VaultFilesScreen() {
   // ─── IMPORT HANDLERS ─────────────────────────────────────────
 
   /** Delete an array of assetIds from the system gallery (native only) */
-  async function deleteFromGallery(assetIds: string[]): Promise<void> {
-    if (Platform.OS === "web" || assetIds.length === 0) return;
+  async function deleteFromGallery(
+    assetIds: string[],
+    uris: string[]
+  ): Promise<void> {
+    if (Platform.OS === "web") return;
+
     try {
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== "granted") return; // graceful — vault copy already succeeded
-      await MediaLibrary.deleteAssetsAsync(assetIds);
-    } catch (e) {
-      // deleteAssetsAsync can throw on Android 10+ if the system dialog is rejected;
-      // the vault copy is already done so we just swallow this silently.
-      console.warn("[VaultFiles] deleteFromGallery failed (ignored):", e);
+      // Request write + read permissions
+      const perm = await MediaLibrary.requestPermissionsAsync(false);
+      if (perm.status !== "granted") {
+        toast.info("Note", "Grant photo access in Settings to auto-remove originals.");
+        return;
+      }
+
+      // Build final list of IDs to delete
+      let idsToDelete: string[] = [...assetIds.filter(Boolean)];
+
+      // Fallback: for any asset where assetId was null, search MediaLibrary by URI
+      if (idsToDelete.length < uris.length) {
+        for (const uri of uris) {
+          try {
+            // getAssetsAsync supports filtering by uri on some platforms
+            const filename = uri.split("/").pop() ?? "";
+            const result = await MediaLibrary.getAssetsAsync({
+              first: 5,
+              sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+            });
+            const match = result.assets.find(
+              (a) => a.filename === filename || a.uri === uri
+            );
+            if (match && !idsToDelete.includes(match.id)) {
+              idsToDelete.push(match.id);
+            }
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+
+      if (idsToDelete.length === 0) return;
+
+      await MediaLibrary.deleteAssetsAsync(idsToDelete);
+      // Deletion succeeded (or system dialog confirmed)
+    } catch (e: any) {
+      // Android 10+ system dialog rejected, or permission issue — vault copy is safe
+      console.warn("[VaultFiles] deleteFromGallery:", e?.message ?? e);
     }
   }
 
@@ -225,6 +261,7 @@ export default function VaultFilesScreen() {
         let skippedLarge = 0;
         let failed = 0;
         const importedAssetIds: string[] = [];
+        const importedUris: string[] = [];
 
         for (const asset of result.assets) {
           const ext = asset.type === "video" ? "mp4" : "jpg";
@@ -233,8 +270,9 @@ export default function VaultFilesScreen() {
           try {
             await addFileToVault(asset.uri, name, fileType);
             imported++;
-            // Collect assetId for gallery deletion (available on iOS & Android 29+)
+            // Collect both assetId AND uri for deletion fallback
             if (asset.assetId) importedAssetIds.push(asset.assetId);
+            importedUris.push(asset.uri);
           } catch (e: any) {
             if (e?.message === "FILE_TOO_LARGE_FOR_WEB") {
               skippedLarge++;
@@ -250,8 +288,8 @@ export default function VaultFilesScreen() {
           await loadFiles();
 
           // Auto-delete successfully imported files from gallery
-          if (Platform.OS !== "web" && importedAssetIds.length > 0) {
-            await deleteFromGallery(importedAssetIds);
+          if (Platform.OS !== "web" && importedUris.length > 0) {
+            await deleteFromGallery(importedAssetIds, importedUris);
           }
         }
 
