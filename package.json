@@ -63,6 +63,7 @@
     "expo-file-system": "^19.0.21",
     "expo-local-authentication": "^17.0.8",
     "expo-media-library": "^18.2.1",
+    "expo-screen-capture": "^8.0.9",
     "expo-sharing": "^14.0.8",
     "expo-video": "^3.0.16",
     "expo-video-thumbnails": "^10.0.8",
