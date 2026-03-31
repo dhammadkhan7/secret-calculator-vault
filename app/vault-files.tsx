@@ -704,24 +704,27 @@ export default function VaultFilesScreen() {
               <Feather name="chevron-right" size={16} color={Colors.vault.textMuted} />
             </TouchableOpacity>
 
-            {/* Biometric toggle — only shown when device has fingerprint/face enrolled */}
-            {hasBioHardware && (
-              <View style={styles.toggleRow}>
-                <View style={styles.toggleLeft}>
-                  <Feather name="cpu" size={18} color={Colors.vault.accent} />
-                  <View style={styles.toggleTextCol}>
-                    <Text style={styles.toggleLabel}>Fingerprint / Face ID</Text>
-                    <Text style={styles.toggleSub}>Auto-prompt on vault open</Text>
-                  </View>
+            {/* Biometric toggle — always visible, disabled if hardware unavailable */}
+            <View style={[styles.toggleRow, !hasBioHardware && { opacity: 0.45 }]}>
+              <View style={styles.toggleLeft}>
+                <Feather name="cpu" size={18} color={Colors.vault.accent} />
+                <View style={styles.toggleTextCol}>
+                  <Text style={styles.toggleLabel}>Fingerprint / Face ID</Text>
+                  <Text style={styles.toggleSub}>
+                    {hasBioHardware
+                      ? "Auto-prompt on vault open"
+                      : "No biometrics enrolled on this device"}
+                  </Text>
                 </View>
-                <Switch
-                  value={biometricOn}
-                  onValueChange={handleToggleBiometric}
-                  trackColor={{ false: Colors.vault.surfaceElevated, true: Colors.vault.accent + "88" }}
-                  thumbColor={biometricOn ? Colors.vault.accent : Colors.vault.textMuted}
-                />
               </View>
-            )}
+              <Switch
+                value={hasBioHardware ? biometricOn : false}
+                onValueChange={hasBioHardware ? handleToggleBiometric : undefined}
+                disabled={!hasBioHardware}
+                trackColor={{ false: Colors.vault.surfaceElevated, true: Colors.vault.accent + "88" }}
+                thumbColor={hasBioHardware && biometricOn ? Colors.vault.accent : Colors.vault.textMuted}
+              />
+            </View>
 
             <TouchableOpacity
               onPress={handleLock}
