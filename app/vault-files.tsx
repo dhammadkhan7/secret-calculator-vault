@@ -184,53 +184,80 @@ export default function VaultFilesScreen() {
 
   // ─── IMPORT HANDLERS ─────────────────────────────────────────
 
-  /** Delete an array of assetIds from the system gallery (native only) */
+  /** Delete an array of assets from the system gallery (native only) */
   async function deleteFromGallery(
     assetIds: string[],
     uris: string[]
   ): Promise<void> {
-    if (Platform.OS === "web") return;
+    if (Platform.OS === "web" || uris.length === 0) return;
 
     try {
-      // Request write + read permissions
       const perm = await MediaLibrary.requestPermissionsAsync(false);
       if (perm.status !== "granted") {
-        toast.info("Note", "Grant photo access in Settings to auto-remove originals.");
+        toast.info("Permission Required", "Enable photo access in Settings to auto-remove originals from gallery.");
         return;
       }
 
-      // Build final list of IDs to delete
-      let idsToDelete: string[] = [...assetIds.filter(Boolean)];
+      const idsToDelete = new Set<string>(assetIds.filter(Boolean));
 
-      // Fallback: for any asset where assetId was null, search MediaLibrary by URI
-      if (idsToDelete.length < uris.length) {
-        for (const uri of uris) {
-          try {
-            // getAssetsAsync supports filtering by uri on some platforms
-            const filename = uri.split("/").pop() ?? "";
-            const result = await MediaLibrary.getAssetsAsync({
-              first: 5,
-              sortBy: [[MediaLibrary.SortBy.creationTime, false]],
-            });
-            const match = result.assets.find(
-              (a) => a.filename === filename || a.uri === uri
-            );
-            if (match && !idsToDelete.includes(match.id)) {
-              idsToDelete.push(match.id);
-            }
-          } catch {
-            /* ignore */
-          }
+      // ── Strategy 2: Parse MediaStore ID from content:// URI ──────────────
+      // Android content URIs often contain the ID as the last path segment:
+      // e.g. content://media/external/images/media/12345  →  "12345"
+      //      content://com.android.providers.media.photopicker/media/12345
+      for (const uri of uris) {
+        const seg = uri.split("/").pop();
+        if (seg && /^\d+$/.test(seg)) {
+          idsToDelete.add(seg);
         }
       }
 
-      if (idsToDelete.length === 0) return;
+      // ── Strategy 3: Search recent MediaLibrary assets by filename ─────────
+      if (idsToDelete.size < uris.length) {
+        for (const uri of uris) {
+          try {
+            const filename = decodeURIComponent(
+              uri.split("/").pop()?.split("?")[0] ?? ""
+            );
+            if (!filename) continue;
+            for (const mediaType of [
+              MediaLibrary.MediaType.photo,
+              MediaLibrary.MediaType.video,
+            ]) {
+              const page = await MediaLibrary.getAssetsAsync({
+                first: 100,
+                mediaType,
+                sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+              });
+              const found = page.assets.find(
+                (a) => a.filename === filename || a.uri === uri
+              );
+              if (found) {
+                idsToDelete.add(found.id);
+                break;
+              }
+            }
+          } catch { /* ignore per-uri errors */ }
+        }
+      }
 
-      await MediaLibrary.deleteAssetsAsync(idsToDelete);
-      // Deletion succeeded (or system dialog confirmed)
+      const ids = [...idsToDelete];
+      if (ids.length === 0) {
+        console.warn("[VaultFiles] deleteFromGallery: no IDs resolved — originals kept");
+        return;
+      }
+
+      // On Android 10+ this triggers a system confirmation dialog.
+      // pickerGuard is still active at this point so the vault won't lock.
+      await MediaLibrary.deleteAssetsAsync(ids);
+      toast.success("Removed from Gallery", `${ids.length} original${ids.length > 1 ? "s" : ""} deleted from your gallery.`);
     } catch (e: any) {
-      // Android 10+ system dialog rejected, or permission issue — vault copy is safe
-      console.warn("[VaultFiles] deleteFromGallery:", e?.message ?? e);
+      const msg: string = e?.message ?? "";
+      // User dismissed the system dialog — vault copy is safe, don't alarm them
+      if (msg.includes("cancel") || msg.includes("Cancel") || msg.includes("CANCEL") || msg.includes("denied")) {
+        toast.info("Originals Kept", "Files are safe in vault. Delete originals from gallery manually.");
+      } else {
+        console.warn("[VaultFiles] deleteFromGallery:", msg);
+      }
     }
   }
 
