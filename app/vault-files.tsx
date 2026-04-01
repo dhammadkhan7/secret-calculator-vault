@@ -239,18 +239,19 @@ export default function VaultFilesScreen() {
     setShowAddSheet(false);
     await new Promise((r) => setTimeout(r, 300));
 
-    // On native, request permission first. Web browsers handle this themselves.
-    if (Platform.OS !== "web") {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== "granted") {
-        toast.error("Permission Needed", "Allow photo library access in Settings to import files.");
-        return;
-      }
-    }
-
-    // Guard: prevent AppState listener from locking vault while picker is open
+    // Guard MUST be set before any permission dialog — permission dialogs also
+    // cause AppState → inactive, which would lock the vault without this guard.
     pickerGuard.active = true;
     try {
+      // On native, request permission first. Web browsers handle this themselves.
+      if (Platform.OS !== "web") {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== "granted") {
+          toast.error("Permission Needed", "Allow photo library access in Settings to import files.");
+          return;
+        }
+      }
+
       setImporting(true);
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images", "videos"],
@@ -322,16 +323,17 @@ export default function VaultFilesScreen() {
     setShowAddSheet(false);
     await new Promise((r) => setTimeout(r, 300));
 
-    if (Platform.OS !== "web") {
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== "granted") {
-        toast.error("Permission Needed", "Allow camera access in Settings to take photos.");
-        return;
-      }
-    }
-
+    // Guard before permission dialog — same reason as gallery handler above
     pickerGuard.active = true;
     try {
+      if (Platform.OS !== "web") {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== "granted") {
+          toast.error("Permission Needed", "Allow camera access in Settings to take photos.");
+          return;
+        }
+      }
+
       setImporting(true);
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ["images", "videos"],
