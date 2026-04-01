@@ -25,6 +25,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { ToastHost } from "@/components/Toast";
 import { AppProvider } from "@/context/AppContext";
+import { pickerGuard } from "@/utils/pickerGuard";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -99,12 +100,21 @@ function PrivacyGuard({ children }: { children: React.ReactNode }) {
         appStateRef.current = nextState;
 
         if (nextState === "background" || nextState === "inactive") {
+          // A native picker (ImagePicker, Camera, DocumentPicker) temporarily
+          // puts the app into inactive/background — do NOT lock the vault.
+          if (pickerGuard.active) return;
+
           const onVault = segmentsRef.current.some(
             (s) => s === "vault" || s === "vault-files"
           );
           wasOnVaultRef.current = onVault;
           setShowPrivacy(true);
         } else if (nextState === "active" && prev !== "active") {
+          // Returning from a native picker — stay on vault screen, no lock.
+          if (pickerGuard.active) {
+            setTimeout(() => setShowPrivacy(false), 200);
+            return;
+          }
           if (wasOnVaultRef.current) {
             wasOnVaultRef.current = false;
             try {
