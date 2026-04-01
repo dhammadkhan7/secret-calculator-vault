@@ -310,7 +310,7 @@ export default function VaultFilesScreen() {
         }
 
         // After any successful import, remind user to delete originals from gallery
-        if (imported > 0 && Platform.OS !== "web") {
+        if (imported > 0) {
           setTimeout(() => {
             Alert.alert(
               "🔒 Delete Originals",
