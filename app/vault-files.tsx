@@ -15,6 +15,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { router } from "expo-router";
+import { pickerGuard } from "@/utils/pickerGuard";
 import React, {
   useEffect,
   useRef,
@@ -247,6 +248,8 @@ export default function VaultFilesScreen() {
       }
     }
 
+    // Guard: prevent AppState listener from locking vault while picker is open
+    pickerGuard.active = true;
     try {
       setImporting(true);
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -309,6 +312,7 @@ export default function VaultFilesScreen() {
       console.error("[VaultFiles] Import error:", e);
       toast.error("Error", "Could not import files. Please try again.");
     } finally {
+      pickerGuard.active = false;
       setImporting(false);
     }
   }
@@ -326,6 +330,7 @@ export default function VaultFilesScreen() {
       }
     }
 
+    pickerGuard.active = true;
     try {
       setImporting(true);
       const result = await ImagePicker.launchCameraAsync({
@@ -348,6 +353,7 @@ export default function VaultFilesScreen() {
         toast.error("Error", "Could not capture media. Please try again.");
       }
     } finally {
+      pickerGuard.active = false;
       setImporting(false);
     }
   }
@@ -357,6 +363,7 @@ export default function VaultFilesScreen() {
     setShowAddSheet(false);
     await new Promise((r) => setTimeout(r, 300));
 
+    pickerGuard.active = true;
     try {
       setImporting(true);
       const result = await DocumentPicker.getDocumentAsync({
@@ -376,6 +383,7 @@ export default function VaultFilesScreen() {
     } catch {
       toast.error("Error", "Could not import documents. Please try again.");
     } finally {
+      pickerGuard.active = false;
       setImporting(false);
     }
   }
