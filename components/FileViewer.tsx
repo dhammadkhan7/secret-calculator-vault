@@ -187,6 +187,11 @@ export function FileViewer({ file, allFiles, onClose, onDeleted }: FileViewerPro
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(safeInitial);
   const flatListRef = useRef<FlatList>(null);
 
+  // Video navigation state
+  const videoFiles = allFiles.filter(f => f.type === "video");
+  const initialVideoIndex = file?.type === "video" ? videoFiles.findIndex(f => f.id === file.id) : 0;
+  const [currentVideoIndex, setCurrentVideoIndex] = useState(Math.max(0, initialVideoIndex));
+
   // viewability config — stable ref so FlatList doesn't re-render on every render
   const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 });
   const onViewableItemsChanged = useCallback(
@@ -209,10 +214,13 @@ export function FileViewer({ file, allFiles, onClose, onDeleted }: FileViewerPro
 
   if (!file) return null;
 
-  // The "active" file — either the swiped-to photo, or the original file for video/doc
-  const activeFile = file.type === "photo" && photoFiles.length > 0
-    ? photoFiles[currentPhotoIndex] ?? file
-    : file;
+  // The "active" file — swiped-to photo, current video, or original doc
+  const activeFile =
+    file.type === "photo" && photoFiles.length > 0
+      ? photoFiles[currentPhotoIndex] ?? file
+      : file.type === "video" && videoFiles.length > 0
+      ? videoFiles[currentVideoIndex] ?? file
+      : file;
 
   const isMedia = activeFile.type === "photo" || activeFile.type === "video";
 
@@ -362,7 +370,43 @@ export function FileViewer({ file, allFiles, onClose, onDeleted }: FileViewerPro
 
         {/* ── Video ─────────────────────────────────────────────────────────── */}
         {file.type === "video" && Platform.OS !== "web" && (
-          <VaultVideoPlayer uri={file.vaultPath} />
+          <View style={styles.videoWrapper}>
+            {/* key forces remount when video changes, resetting the player */}
+            <VaultVideoPlayer key={activeFile.id} uri={activeFile.vaultPath} />
+
+            {/* Prev / Next navigation */}
+            {videoFiles.length > 1 && (
+              <>
+                {currentVideoIndex > 0 && (
+                  <Pressable
+                    style={[styles.videoNavBtn, styles.videoNavLeft]}
+                    onPress={() => setCurrentVideoIndex(i => i - 1)}
+                    hitSlop={12}
+                  >
+                    <View style={styles.videoNavCircle}>
+                      <Feather name="chevron-left" size={26} color="#fff" />
+                    </View>
+                  </Pressable>
+                )}
+                {currentVideoIndex < videoFiles.length - 1 && (
+                  <Pressable
+                    style={[styles.videoNavBtn, styles.videoNavRight]}
+                    onPress={() => setCurrentVideoIndex(i => i + 1)}
+                    hitSlop={12}
+                  >
+                    <View style={styles.videoNavCircle}>
+                      <Feather name="chevron-right" size={26} color="#fff" />
+                    </View>
+                  </Pressable>
+                )}
+                <View style={styles.videoCounter}>
+                  <Text style={styles.videoCounterText}>
+                    {currentVideoIndex + 1} / {videoFiles.length}
+                  </Text>
+                </View>
+              </>
+            )}
+          </View>
         )}
 
         {file.type === "video" && Platform.OS === "web" && (
@@ -370,8 +414,8 @@ export function FileViewer({ file, allFiles, onClose, onDeleted }: FileViewerPro
             <View style={[styles.docIconBg, { backgroundColor: "rgba(255,107,53,0.15)" }]}>
               <Feather name="video" size={52} color="#FF6B35" />
             </View>
-            <Text style={styles.docName}>{file.name}</Text>
-            <Text style={styles.docMeta}>{formatFileSize(file.size)} · Video</Text>
+            <Text style={styles.docName}>{activeFile.name}</Text>
+            <Text style={styles.docMeta}>{formatFileSize(activeFile.size)} · Video</Text>
             <Text style={styles.docHint}>
               Video playback requires Expo Go.{"\n"}
               Tap "Share / Open" to download it.
@@ -549,6 +593,11 @@ const styles = StyleSheet.create({
   },
 
   // Video
+  videoWrapper: {
+    flex: 1,
+    backgroundColor: "#000",
+    position: "relative",
+  },
   videoContainer: {
     flex: 1,
     backgroundColor: "#000",
@@ -558,6 +607,48 @@ const styles = StyleSheet.create({
   video: {
     width: SCREEN_W,
     height: SCREEN_H * 0.6,
+  },
+  videoNavBtn: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 72,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 10,
+  },
+  videoNavLeft: {
+    left: 0,
+  },
+  videoNavRight: {
+    right: 0,
+  },
+  videoNavCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  videoCounter: {
+    position: "absolute",
+    bottom: 18,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 10,
+  },
+  videoCounterText: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+    backgroundColor: "rgba(0,0,0,0.45)",
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 10,
   },
 
   // Document

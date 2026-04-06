@@ -100,6 +100,7 @@ export default function VaultFilesScreen() {
   const [biometricOn, setBiometricOn] = useState(true);
   const [hasBioHardware, setHasBioHardware] = useState(false);
   const [viewingFile, setViewingFile] = useState<VaultFile | null>(null);
+  const [deleteReminderCount, setDeleteReminderCount] = useState(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isSelecting = selectedIds.size > 0;
@@ -182,6 +183,45 @@ export default function VaultFilesScreen() {
     );
   }
 
+  async function handleSaveSelectedToGallery() {
+    resetInactivity();
+    if (selectedIds.size === 0) return;
+    if (Platform.OS === "web") {
+      toast.info("Not Available", "Saving to gallery works on Android/iOS only.");
+      return;
+    }
+    const { status } = await MediaLibrary.requestPermissionsAsync(true);
+    if (status !== "granted") {
+      toast.error("Permission Needed", "Allow photo access in Settings to save files.");
+      return;
+    }
+    const savable = files.filter(
+      (f) => selectedIds.has(f.id) && (f.type === "photo" || f.type === "video")
+    );
+    if (savable.length === 0) {
+      toast.info("Nothing to Save", "Only photos and videos can be saved to gallery.");
+      return;
+    }
+    let saved = 0;
+    let failed = 0;
+    for (const f of savable) {
+      try {
+        await MediaLibrary.saveToLibraryAsync(f.vaultPath);
+        saved++;
+      } catch {
+        failed++;
+      }
+    }
+    setSelectedIds(new Set());
+    if (saved > 0) {
+      haptic("success");
+      toast.success("Saved!", `${saved} file${saved > 1 ? "s" : ""} saved to your gallery.`);
+    }
+    if (failed > 0) {
+      toast.error("Partial Save", `${failed} file${failed > 1 ? "s" : ""} could not be saved.`);
+    }
+  }
+
   // ─── IMPORT HANDLERS ─────────────────────────────────────────
 
   /** Delete an array of assetIds from the system gallery (native only) */
@@ -258,6 +298,9 @@ export default function VaultFilesScreen() {
         allowsMultipleSelection: true,
         quality: 1,
         selectionLimit: 50,
+        // On web, request base64 directly so we skip the fetch(blobUrl) step
+        // which fails in Replit's sandboxed cross-origin iframe context
+        base64: Platform.OS === "web",
       });
 
       if (!result.canceled && result.assets.length > 0) {
@@ -272,7 +315,13 @@ export default function VaultFilesScreen() {
           const name = asset.fileName ?? `file_${Date.now()}.${ext}`;
           const fileType = asset.type === "video" ? "video" : "photo";
           try {
-            await addFileToVault(asset.uri, name, fileType);
+            // On web: use pre-supplied base64 from picker (avoids fetch on blob URLs)
+            let assetUri = asset.uri;
+            if (Platform.OS === "web" && asset.base64) {
+              const mime = asset.type === "video" ? "video/mp4" : "image/jpeg";
+              assetUri = `data:${mime};base64,${asset.base64}`;
+            }
+            await addFileToVault(assetUri, name, fileType);
             imported++;
             // Collect both assetId AND uri for deletion fallback
             if (asset.assetId) importedAssetIds.push(asset.assetId);
@@ -309,21 +358,19 @@ export default function VaultFilesScreen() {
           toast.success("Hidden in Vault!", `${imported} file${imported > 1 ? "s" : ""} secured.`);
         }
 
-        // After any successful import, remind user to delete originals from gallery
+        // After any successful import, show in-app reminder to delete originals
         if (imported > 0) {
-          setTimeout(() => {
-            Alert.alert(
-              "🔒 Delete Originals",
-              `Your ${imported} file${imported > 1 ? "s are" : " is"} now safely hidden in the vault.\n\nFor complete privacy, please go to your Gallery / Photos app and manually delete the original${imported > 1 ? "s" : ""} from there.`,
-              [{ text: "Got it", style: "default" }],
-              { cancelable: true }
-            );
-          }, 600);
+          setTimeout(() => setDeleteReminderCount(imported), 600);
         }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("[VaultFiles] Import error:", e);
-      toast.error("Error", "Could not import files. Please try again.");
+      const msg = e?.message ?? String(e);
+      if (msg.includes("QuotaExceeded") || msg.includes("storage")) {
+        toast.error("Storage Full", "Browser storage is full. Clear some vault files and try again.");
+      } else {
+        toast.error("Import Failed", msg.slice(0, 80) || "Unknown error. Please try again.");
+      }
     } finally {
       pickerGuard.active = false;
       setImporting(false);
@@ -387,15 +434,27 @@ export default function VaultFilesScreen() {
       });
 
       if (!result.canceled && result.assets.length > 0) {
+        let docImported = 0;
         for (const asset of result.assets) {
-          await addFileToVault(asset.uri, asset.name, "document");
+          try {
+            await addFileToVault(asset.uri, asset.name, "document");
+            docImported++;
+          } catch (e: any) {
+            console.error("[VaultFiles] Doc import failed:", e, asset.name);
+          }
         }
-        haptic("success");
-        toast.success("Imported!", `${result.assets.length} document${result.assets.length > 1 ? "s" : ""} added to your vault.`);
-        await loadFiles();
+        if (docImported > 0) {
+          haptic("success");
+          toast.success("Imported!", `${docImported} document${docImported > 1 ? "s" : ""} added to your vault.`);
+          await loadFiles();
+          setTimeout(() => setDeleteReminderCount(docImported), 600);
+        } else {
+          toast.error("Import Failed", "Could not save documents. Storage may be full.");
+        }
       }
-    } catch {
-      toast.error("Error", "Could not import documents. Please try again.");
+    } catch (e: any) {
+      const msg = e?.message ?? String(e);
+      toast.error("Import Failed", msg.slice(0, 80) || "Could not import documents.");
     } finally {
       pickerGuard.active = false;
       setImporting(false);
@@ -469,21 +528,32 @@ export default function VaultFilesScreen() {
           </Text>
         </View>
 
-        <TouchableOpacity
-          onPress={
-            isSelecting
-              ? handleDeleteSelected
-              : () => setShowSettings(true)
-          }
-          style={styles.headerBtn}
-          activeOpacity={0.7}
-        >
-          <Feather
-            name={isSelecting ? "trash-2" : "settings"}
-            size={20}
-            color={isSelecting ? Colors.vault.danger : Colors.vault.textSecondary}
-          />
-        </TouchableOpacity>
+        {isSelecting ? (
+          <View style={styles.headerActionsRow}>
+            <TouchableOpacity
+              onPress={handleSaveSelectedToGallery}
+              style={styles.headerBtn}
+              activeOpacity={0.7}
+            >
+              <Feather name="download" size={20} color={Colors.vault.accent} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleDeleteSelected}
+              style={styles.headerBtn}
+              activeOpacity={0.7}
+            >
+              <Feather name="trash-2" size={20} color={Colors.vault.danger} />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity
+            onPress={() => setShowSettings(true)}
+            style={styles.headerBtn}
+            activeOpacity={0.7}
+          >
+            <Feather name="settings" size={20} color={Colors.vault.textSecondary} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* ── Filter tabs ── */}
@@ -808,6 +878,42 @@ export default function VaultFilesScreen() {
           loadFiles();
         }}
       />
+
+      {/* ── Delete Originals Reminder Modal ── */}
+      <Modal
+        visible={deleteReminderCount > 0}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setDeleteReminderCount(0)}
+      >
+        <View style={styles.reminderOverlay}>
+          <View style={styles.reminderCard}>
+            <View style={styles.reminderIconRow}>
+              <View style={styles.reminderIconBg}>
+                <Feather name="trash-2" size={26} color="#FF6B35" />
+              </View>
+            </View>
+            <Text style={styles.reminderTitle}>Delete Originals</Text>
+            <Text style={styles.reminderBody}>
+              {deleteReminderCount === 1
+                ? "Your file is now safely hidden in the vault."
+                : `Your ${deleteReminderCount} files are now safely hidden in the vault.`}
+              {"\n\n"}
+              For complete privacy, please open your{" "}
+              <Text style={styles.reminderBold}>Gallery / Photos</Text> app and
+              manually delete the original
+              {deleteReminderCount > 1 ? "s" : ""} from there.
+            </Text>
+            <TouchableOpacity
+              style={styles.reminderBtn}
+              activeOpacity={0.85}
+              onPress={() => setDeleteReminderCount(0)}
+            >
+              <Text style={styles.reminderBtnText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -832,6 +938,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.vault.surfaceElevated,
     alignItems: "center",
     justifyContent: "center",
+  },
+  headerActionsRow: {
+    flexDirection: "row",
+    gap: 8,
   },
   headerCenter: {
     flex: 1,
@@ -1144,5 +1254,64 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     color: Colors.vault.textMuted,
     marginTop: 2,
+  },
+
+  // ── Delete Originals Reminder ──
+  reminderOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  reminderCard: {
+    backgroundColor: Colors.vault.surface,
+    borderRadius: 20,
+    padding: 28,
+    width: "100%",
+    maxWidth: 360,
+    alignItems: "center",
+  },
+  reminderIconRow: {
+    marginBottom: 16,
+  },
+  reminderIconBg: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(255,107,53,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reminderTitle: {
+    fontSize: 20,
+    fontFamily: "Inter_700Bold",
+    color: Colors.vault.text,
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  reminderBody: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: Colors.vault.textMuted,
+    lineHeight: 22,
+    textAlign: "center",
+    marginBottom: 24,
+  },
+  reminderBold: {
+    fontFamily: "Inter_600SemiBold",
+    color: Colors.vault.text,
+  },
+  reminderBtn: {
+    backgroundColor: Colors.vault.accent,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    alignItems: "center",
+  },
+  reminderBtnText: {
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+    color: "#fff",
   },
 });

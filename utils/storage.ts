@@ -66,27 +66,36 @@ async function ensureVaultDir(): Promise<void> {
 const WEB_MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB limit for browser storage
 
 async function uriToBase64DataUri(uri: string, mimeType: string): Promise<string> {
-  // If it's already a data URI, return as-is
+  // If it's already a data URI, return as-is (e.g. from base64:true picker option)
   if (uri.startsWith("data:")) return uri;
 
+  // If it's a blob URL, fetch it and convert via FileReader
+  // Note: blob URLs may be revoked by Expo after launchImageLibraryAsync returns,
+  // so callers should prefer passing pre-computed base64 data URIs where possible.
   return new Promise((resolve, reject) => {
     fetch(uri)
-      .then((r) => r.blob())
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.blob();
+      })
       .then((blob) => {
         if (blob.size > WEB_MAX_FILE_BYTES) {
-          reject(
-            new Error(
-              "FILE_TOO_LARGE_FOR_WEB"
-            )
-          );
+          reject(new Error("FILE_TOO_LARGE_FOR_WEB"));
           return;
         }
         const reader = new FileReader();
         reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = reject;
+        reader.onerror = () => reject(new Error("FileReader failed to read blob"));
         reader.readAsDataURL(blob);
       })
-      .catch(reject);
+      .catch((err) => {
+        // Blob URLs can be revoked before fetch — give a clear message
+        reject(new Error(
+          `Could not read file (${err?.message ?? "fetch failed"}). ` +
+          `On web preview, photos must be imported via the gallery picker. ` +
+          `Documents may not be supported in the web preview.`
+        ));
+      });
   });
 }
 
@@ -247,7 +256,15 @@ export async function addFileToVault(
     };
 
     // Store the data URI separately (it's large)
-    await AsyncStorage.setItem(VAULT_DATA_PREFIX + id, dataUri);
+    try {
+      await AsyncStorage.setItem(VAULT_DATA_PREFIX + id, dataUri);
+    } catch (err: any) {
+      // Browser localStorage can fill up (5-10 MB limit)
+      if (err?.name === "QuotaExceededError" || err?.code === 22 || String(err).includes("QuotaExceeded")) {
+        throw new Error("Browser storage is full. Please delete some vault files and try again.");
+      }
+      throw err;
+    }
 
     const files = await getVaultFiles();
     files.unshift(vaultFile);
